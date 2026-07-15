@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#1c21d1" />
-  <meta name="description" content="Convierte presentaciones de NotebookLM con diapositivas planas en PowerPoint con capas editables, directamente en tu navegador." />
-  <title>NotebookLM Layerizer</title>
+  <meta name="description" content="Editor híbrido para convertir diapositivas de NotebookLM en PowerPoint con diseño conservado y textos editables." />
+  <title>Editor híbrido de diapositivas</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,170 +14,151 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true">L</div>
+      <div class="brand-mark">H</div>
       <div>
-        <strong>NotebookLM Layerizer</strong>
-        <span>Diapositivas planas → capas editables</span>
+        <strong>Editor híbrido de diapositivas</strong>
+        <span>NotebookLM → diseño conservado + textos editables</span>
       </div>
     </div>
-    <div class="privacy-pill">Procesamiento local · tus archivos no se suben</div>
+    <div class="privacy-pill">Procesamiento local · tus archivos no se almacenan</div>
   </header>
 
   <main class="shell">
     <section class="hero">
       <div>
-        <p class="eyebrow">CONVERSOR WEB</p>
-        <h1>Convierte el diseño de NotebookLM en un PPT editable.</h1>
-        <p class="lead">Carga el PowerPoint, deja que la página detecte textos, formas, iconos y objetos, y descarga una nueva presentación con capas independientes.</p>
+        <p class="eyebrow">EDITOR WEB</p>
+        <h1>Conserva el diseño de NotebookLM y edita lo que realmente necesitas.</h1>
+        <p class="lead">La aplicación mantiene ilustraciones, efectos y composición como una base visual, reconstruye los textos como capas editables y adapta la paleta sin destruir la diapositiva.</p>
       </div>
       <div class="hero-card">
-        <div class="hero-step"><b>1</b><span>Carga el PPTX</span></div>
-        <div class="hero-arrow">→</div>
-        <div class="hero-step"><b>2</b><span>Separa capas</span></div>
-        <div class="hero-arrow">→</div>
-        <div class="hero-step"><b>3</b><span>Descarga PPTX</span></div>
+        <div><b>1</b><span>Carga tu PPTX</span></div>
+        <i>→</i>
+        <div><b>2</b><span>Revisa los textos</span></div>
+        <i>→</i>
+        <div><b>3</b><span>Descarga editable</span></div>
       </div>
     </section>
 
     <section class="workspace-grid">
       <aside class="panel controls-panel">
-        <h2>1. Selecciona tu archivo</h2>
+        <h2>Presentación</h2>
         <label class="dropzone" id="dropzone" for="pptInput">
           <input id="pptInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" />
           <div class="drop-icon">⇧</div>
-          <strong>Arrastra aquí tu PPT de NotebookLM</strong>
+          <strong>Arrastra aquí el PPT de NotebookLM</strong>
           <span>o haz clic para seleccionarlo</span>
-          <small>El archivo se procesa dentro de este navegador.</small>
+          <small>Se procesa en este navegador.</small>
         </label>
         <div class="file-card hidden" id="fileCard">
           <div class="file-icon">P</div>
-          <div class="file-meta">
-            <strong id="fileName">—</strong>
-            <span id="fileSize">—</span>
-          </div>
-          <button class="icon-button" id="removeFileBtn" title="Quitar archivo" aria-label="Quitar archivo">×</button>
+          <div class="file-meta"><strong id="fileName">—</strong><span id="fileSize">—</span></div>
+          <button class="icon-button" id="removeFileBtn" aria-label="Quitar archivo">×</button>
         </div>
 
-        <h2>2. Ajustes</h2>
+        <h2>Estilo de salida</h2>
         <div class="field">
-          <label for="fontFace">Tipografía del texto editable</label>
-          <input id="fontFace" type="text" value="Poppins" autocomplete="off" />
+          <label for="fontFace">Tipografía editable</label>
+          <input id="fontFace" value="Poppins" />
         </div>
-        <div class="field two-col">
-          <div>
-            <label for="backgroundColor">Fondo opcional</label>
-            <div class="color-row">
-              <input id="backgroundColorPicker" type="color" value="#1c21d1" />
-              <input id="backgroundColor" type="text" placeholder="Conservar original" maxlength="7" />
-            </div>
-          </div>
-          <div>
-            <label for="detailLevel">Nivel de separación</label>
-            <select id="detailLevel">
-              <option value="balanced" selected>Equilibrado</option>
-              <option value="more">Más capas</option>
-              <option value="fidelity">Máxima fidelidad</option>
-            </select>
+        <div class="field">
+          <label for="primaryColor">Color principal</label>
+          <div class="color-row">
+            <input id="primaryColorPicker" type="color" value="#1c21d1" />
+            <input id="primaryColor" value="#1c21d1" maxlength="7" />
           </div>
         </div>
         <label class="check-row">
-          <input id="replaceBackground" type="checkbox" />
-          <span>Aplicar el color de fondo a todas las diapositivas</span>
-        </label>
-        <label class="check-row">
-          <input id="quickTest" type="checkbox" />
-          <span>Prueba rápida: procesar solo las primeras 3 diapositivas</span>
+          <input id="applyTheme" type="checkbox" checked />
+          <span>Adaptar los fondos y tonos oscuros al color principal</span>
         </label>
 
         <div class="notice">
-          <strong>Resultado esperado</strong>
-          <p>Los textos quedan editables. Las formas simples se recrean. Las ilustraciones, iconos y efectos complejos se separan como imágenes independientes.</p>
+          <strong>Cómo quedará</strong>
+          <p>El arte, los iconos y los efectos permanecen unidos para conservar su calidad. Los textos confiables se convierten en cuadros editables que puedes corregir antes de descargar.</p>
         </div>
 
-        <button class="primary-button" id="processBtn" disabled>
-          <span>Separar y crear PPT editable</span>
-        </button>
-        <button class="secondary-button hidden" id="downloadBtn">Descargar de nuevo</button>
+        <button class="primary-button" id="processBtn" disabled>Preparar presentación editable</button>
+        <button class="secondary-button hidden" id="downloadBtn">Descargar PowerPoint editable</button>
       </aside>
 
-      <section class="panel results-panel">
-        <div class="results-head">
-          <div>
-            <p class="eyebrow">VISTA DE PROCESO</p>
-            <h2 id="resultsTitle">Tu presentación aparecerá aquí</h2>
-          </div>
+      <section class="panel main-panel">
+        <div class="panel-head">
+          <div><p class="eyebrow">ÁREA DE TRABAJO</p><h2 id="panelTitle">Carga una presentación para comenzar</h2></div>
           <div class="status-badge idle" id="statusBadge">En espera</div>
         </div>
 
         <div class="empty-state" id="emptyState">
-          <div class="empty-visual">
-            <div class="flat-slide">IMAGEN PLANA</div>
-            <div class="split-lines"><i></i><i></i><i></i></div>
-            <div class="layer-stack">
-              <span>Texto</span><span>Ícono</span><span>Fondo</span>
-            </div>
+          <div class="hybrid-visual">
+            <div class="visual-slide"><span>DISEÑO</span><span>+ TEXTO</span></div>
+            <div class="visual-arrow">→</div>
+            <div class="visual-stack"><span>Arte intacto</span><span>Texto editable</span><span>Paleta adaptada</span></div>
           </div>
-          <h3>No necesitas instalar nada</h3>
-          <p>Al cargar un archivo, la página extraerá las imágenes de cada diapositiva, analizará el diseño y generará un nuevo PowerPoint.</p>
+          <h3>Sin instalar programas</h3>
+          <p>La primera ejecución puede tardar porque el navegador descarga el motor de reconocimiento de texto.</p>
         </div>
 
         <div class="processing hidden" id="processingView">
-          <div class="progress-wrap">
-            <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
-            <div class="progress-text"><span id="progressLabel">Preparando…</span><b id="progressPercent">0%</b></div>
-          </div>
-          <div class="stage-list" id="stageList">
-            <div data-stage="open"><i></i><span>Leer presentación</span></div>
+          <div class="progress-track"><div id="progressBar"></div></div>
+          <div class="progress-row"><span id="progressLabel">Preparando…</span><b id="progressPercent">0%</b></div>
+          <div class="stage-grid" id="stageGrid">
+            <div data-stage="read"><i></i><span>Leer PPT</span></div>
             <div data-stage="extract"><i></i><span>Extraer diapositivas</span></div>
             <div data-stage="ocr"><i></i><span>Reconocer textos</span></div>
-            <div data-stage="layers"><i></i><span>Separar formas y objetos</span></div>
-            <div data-stage="export"><i></i><span>Generar PowerPoint editable</span></div>
+            <div data-stage="clean"><i></i><span>Preparar base visual</span></div>
+            <div data-stage="review"><i></i><span>Abrir editor</span></div>
           </div>
-          <pre class="log-box" id="logBox"></pre>
+          <pre id="logBox" class="log-box"></pre>
         </div>
 
-        <div class="results hidden" id="resultsView">
-          <div class="summary-cards">
-            <div><span>Diapositivas</span><b id="slideCount">0</b></div>
-            <div><span>Textos editables</span><b id="textCount">0</b></div>
-            <div><span>Formas</span><b id="shapeCount">0</b></div>
-            <div><span>Objetos</span><b id="objectCount">0</b></div>
-          </div>
-          <div class="preview-layout">
-            <div class="thumbs" id="thumbs"></div>
-            <div class="preview-area">
-              <canvas id="previewCanvas" width="960" height="540"></canvas>
-              <div class="legend">
-                <span><i class="legend-text"></i>Texto</span>
-                <span><i class="legend-shape"></i>Forma</span>
-                <span><i class="legend-object"></i>Objeto</span>
-              </div>
+        <div class="editor hidden" id="editorView">
+          <div class="editor-toolbar">
+            <div class="summary"><span><b id="slideCount">0</b> diapositivas</span><span><b id="textCount">0</b> textos editables</span></div>
+            <div class="toolbar-actions">
+              <button id="addTextBtn" class="small-button">+ Agregar texto</button>
+              <button id="resetSlideBtn" class="small-button ghost">Restaurar diapositiva</button>
             </div>
           </div>
-          <div class="success-box">
-            <div class="success-icon">✓</div>
-            <div><strong>Presentación creada</strong><span id="outputName">—</span></div>
+
+          <div class="editor-layout">
+            <div class="thumbs" id="thumbs"></div>
+            <div class="stage-column">
+              <div class="slide-stage-wrap" id="slideStageWrap">
+                <div class="slide-stage" id="slideStage">
+                  <img id="slideBackground" alt="Diapositiva" />
+                  <div id="textLayerHost"></div>
+                </div>
+              </div>
+              <p class="stage-help">Haz clic en un texto para editarlo. Arrástralo desde el borde superior y cambia su tamaño desde la esquina inferior derecha.</p>
+            </div>
+            <aside class="properties" id="propertiesPanel">
+              <h3>Texto seleccionado</h3>
+              <div id="noSelection" class="no-selection">Selecciona un cuadro de texto en la diapositiva.</div>
+              <div id="textProperties" class="hidden">
+                <div class="field"><label for="textContent">Contenido</label><textarea id="textContent" rows="6"></textarea></div>
+                <div class="field two-col">
+                  <div><label for="textSize">Tamaño</label><input id="textSize" type="number" min="6" max="72" step="0.5" /></div>
+                  <div><label for="textColor">Color</label><input id="textColor" type="color" /></div>
+                </div>
+                <div class="field two-col">
+                  <div><label for="textAlign">Alineación</label><select id="textAlign"><option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option></select></div>
+                  <label class="toggle-button"><input id="textBold" type="checkbox" /><span>Negrita</span></label>
+                </div>
+                <button id="deleteTextBtn" class="danger-button">Eliminar este texto</button>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
     </section>
 
-    <section class="limits">
-      <h2>Qué hace esta versión</h2>
-      <div class="limits-grid">
-        <article><b>Texto editable</b><p>Reconoce español e inglés y lo reconstruye en cuadros de texto de PowerPoint.</p></article>
-        <article><b>Formas editables</b><p>Intenta convertir tarjetas y bloques de color en rectángulos recoloreables.</p></article>
-        <article><b>Objetos separados</b><p>Aísla ilustraciones, iconos y elementos visuales en capas PNG transparentes.</p></article>
-        <article><b>Fidelidad protegida</b><p>Conserva una capa de fondo para evitar que el diseño de NotebookLM se pierda.</p></article>
-      </div>
-      <p class="fine-print">Una imagen plana no contiene sus capas originales. La herramienta reconstruye capas por inferencia; los efectos 3D, luces y transparencias complejas pueden necesitar ajustes posteriores en PowerPoint o Canva.</p>
+    <section class="explanation">
+      <article><b>Fidelidad visual</b><p>Las ilustraciones, fotografías, iconos, marcos, luces y degradados se mantienen en una capa gráfica estable.</p></article>
+      <article><b>Texto realmente editable</b><p>Los títulos y párrafos detectados se reconstruyen como cuadros de texto de PowerPoint.</p></article>
+      <article><b>Corrección antes de exportar</b><p>Puedes corregir una palabra, mover un texto, eliminarlo o agregar uno nuevo desde la misma página.</p></article>
     </section>
   </main>
 
-  <footer>
-    <span>NotebookLM Layerizer</span>
-    <span>Funciona en el navegador · Sin subir archivos a un servidor</span>
-  </footer>
+  <footer><span>Editor híbrido de diapositivas</span><span>Procesamiento en el navegador · GitHub Pages</span></footer>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
