@@ -1,0 +1,63 @@
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  pptInput: $("pptInput"), dropzone: $("dropzone"), fileCard: $("fileCard"), fileName: $("fileName"), fileSize: $("fileSize"), removeFileBtn: $("removeFileBtn"),
+  fontFace: $("fontFace"), primaryColor: $("primaryColor"), primaryColorPicker: $("primaryColorPicker"), applyTheme: $("applyTheme"), processBtn: $("processBtn"), downloadBtn: $("downloadBtn"),
+  panelTitle: $("panelTitle"), statusBadge: $("statusBadge"), emptyState: $("emptyState"), processingView: $("processingView"), editorView: $("editorView"),
+  progressBar: $("progressBar"), progressLabel: $("progressLabel"), progressPercent: $("progressPercent"), stageGrid: $("stageGrid"), logBox: $("logBox"),
+  slideCount: $("slideCount"), textCount: $("textCount"), thumbs: $("thumbs"), slideStageWrap: $("slideStageWrap"), slideStage: $("slideStage"), slideBackground: $("slideBackground"), textLayerHost: $("textLayerHost"),
+  addTextBtn: $("addTextBtn"), resetSlideBtn: $("resetSlideBtn"), noSelection: $("noSelection"), textProperties: $("textProperties"), textContent: $("textContent"), textSize: $("textSize"), textColor: $("textColor"), textAlign: $("textAlign"), textBold: $("textBold"), deleteTextBtn: $("deleteTextBtn")
+};
+
+const state = { file: null, parsed: null, slides: [], worker: null, currentSlide: 0, selectedTextId: null, running: false, outputBlob: null };
+const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const EMU_PER_INCH = 914400;
+const STAGES = ["read", "extract", "ocr", "clean", "review"];
+
+function formatBytes(bytes) { if (!Number.isFinite(bytes)) return "—"; const units = ["B", "KB", "MB", "GB"]; let value = bytes, i = 0; while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; } return `${value.toFixed(i ? 1 : 0)} ${units[i]}`; }
+function sanitizeFilename(name) { return (name || "presentacion").replace(/\.pptx$/i, "").replace(/[\\/:*?"<>|]+/g, "-").trim() || "presentacion"; }
+function now() { return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function log(message) { ui.logBox.textContent += `[${now()}] ${message}\n`; ui.logBox.scrollTop = ui.logBox.scrollHeight; }
+function setStatus(text, kind = "idle") { ui.statusBadge.textContent = text; ui.statusBadge.className = `status-badge ${kind}`; }
+function setProgress(percent, label) { const value = Math.max(0, Math.min(100, Math.round(percent))); ui.progressBar.style.width = `${value}%`; ui.progressPercent.textContent = `${value}%`; if (label) ui.progressLabel.textContent = label; }
+function setStage(stage) { const index = STAGES.indexOf(stage); ui.stageGrid.querySelectorAll("[data-stage]").forEach((node) => { const i = STAGES.indexOf(node.dataset.stage); node.classList.toggle("complete", i < index); node.classList.toggle("active", i === index); }); }
+function parseXml(text) { const doc = new DOMParser().parseFromString(text, "application/xml"); if (doc.querySelector("parsererror")) throw new Error("No se pudo leer la estructura interna del PowerPoint."); return doc; }
+function relId(node, attr = "id") { return node.getAttributeNS(REL_NS, attr) || node.getAttribute(`r:${attr}`) || node.getAttribute(attr); }
+function relMap(doc) { const map = new Map(); Array.from(doc.getElementsByTagNameNS("*", "Relationship")).forEach((r) => map.set(r.getAttribute("Id"), r.getAttribute("Target"))); return map; }
+function dirname(path) { const parts = path.split("/"); parts.pop(); return parts.join("/"); }
+function normalizePath(path) { const out = []; path.replace(/\\/g, "/").split("/").forEach((part) => { if (!part || part === ".") return; if (part === "..") out.pop(); else out.push(part); }); return out.join("/"); }
+function relsPath(path) { return `${dirname(path)}/_rels/${path.split("/").pop()}.rels`; }
+function dataUrlToBlob(dataUrl) { const [meta, body] = dataUrl.split(","); const mime = /data:([^;]+)/.exec(meta)?.[1] || "image/png"; const bytes = atob(body); const arr = new Uint8Array(bytes.length); for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i); return new Blob([arr], { type: mime }); }
+function downloadBlob(blob, filename) { const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+function blobToDataUrl(blob) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); }
+function loadImage(source) { return new Promise((resolve, reject) => { const img = new Image(); const url = typeof source === "string" ? source : URL.createObjectURL(source); img.onload = () => { if (typeof source !== "string") URL.revokeObjectURL(url); resolve(img); }; img.onerror = () => reject(new Error("No se pudo abrir una imagen de la presentación.")); img.src = url; }); }
+function canvasFromImage(img, width = img.naturalWidth, height = img.naturalHeight) { const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height; canvas.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, width, height); return canvas; }
+function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+function clamp255(value) { return clamp(Math.round(value), 0, 255); }
+function rgbToHex(r, g, b) { return [r, g, b].map((v) => clamp255(v).toString(16).padStart(2, "0")).join("").toUpperCase(); }
+function hexToRgb(hex) { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || ""); return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null; }
+function rgbToHsl(r, g, b) { r /= 255; g /= 255; b /= 255; const max = Math.max(r, g, b), min = Math.min(r, g, b); let h = 0, s = 0; const l = (max + min) / 2; if (max !== min) { const d = max - min; s = l > 0.5 ? d / (2 - max - min) : d / (max + min); if (max === r) h = (g - b) / d + (g < b ? 6 : 0); else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h /= 6; } return [h, s, l]; }
+function hslToRgb(h, s, l) { if (s === 0) { const v = clamp255(l * 255); return [v, v, v]; } const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; }; const q = l < 0.5 ? l * (1 + s) : l + s - l * s; const p = 2 * l - q; return [clamp255(hue2rgb(p, q, h + 1 / 3) * 255), clamp255(hue2rgb(p, q, h) * 255), clamp255(hue2rgb(p, q, h - 1 / 3) * 255)]; }
+
+function selectFile(file) {
+  if (!file) return;
+  if (!/\.pptx$/i.test(file.name)) { alert("Selecciona un archivo PowerPoint con extensión .pptx"); return; }
+  state.file = file; state.parsed = null; state.slides = []; state.outputBlob = null; state.currentSlide = 0; state.selectedTextId = null;
+  ui.fileName.textContent = file.name; ui.fileSize.textContent = formatBytes(file.size); ui.fileCard.classList.remove("hidden"); ui.dropzone.classList.add("hidden"); ui.processBtn.disabled = false; ui.downloadBtn.classList.add("hidden");
+  ui.emptyState.classList.remove("hidden"); ui.processingView.classList.add("hidden"); ui.editorView.classList.add("hidden"); ui.panelTitle.textContent = "Presentación lista para procesar"; setStatus("Lista", "idle"); setProgress(0, "Preparando…"); ui.logBox.textContent = "";
+}
+function clearFile() { if (state.running) return; state.file = null; state.parsed = null; state.slides = []; ui.pptInput.value = ""; ui.fileCard.classList.add("hidden"); ui.dropzone.classList.remove("hidden"); ui.processBtn.disabled = true; ui.downloadBtn.classList.add("hidden"); ui.emptyState.classList.remove("hidden"); ui.processingView.classList.add("hidden"); ui.editorView.classList.add("hidden"); ui.panelTitle.textContent = "Carga una presentación para comenzar"; setStatus("En espera", "idle"); }
+
+async function parsePresentation(file) {
+  setStage("read"); setProgress(2, "Leyendo el PowerPoint…"); log(`Abriendo ${file.name} (${formatBytes(file.size)})`);
+  const zip = await JSZip.loadAsync(file); const presentationEntry = zip.file("ppt/presentation.xml"); const relEntry = zip.file("ppt/_rels/presentation.xml.rels");
+  if (!presentationEntry || !relEntry) throw new Error("El archivo no contiene una estructura PowerPoint válida.");
+  const presentationDoc = parseXml(await presentationEntry.async("text")); const relationships = relMap(parseXml(await relEntry.async("text")));
+  const sizeNode = presentationDoc.getElementsByTagNameNS("*", "sldSz")[0]; const widthIn = (Number(sizeNode?.getAttribute("cx")) || 12192000) / EMU_PER_INCH; const heightIn = (Number(sizeNode?.getAttribute("cy")) || 6858000) / EMU_PER_INCH;
+  setStage("extract"); const slideIds = Array.from(presentationDoc.getElementsByTagNameNS("*", "sldId")); const slides = [];
+  for (let i = 0; i < slideIds.length; i++) {
+    const target = relationships.get(relId(slideIds[i])); if (!target) continue; const slidePath = normalizePath(`ppt/${target}`); const slideEntry = zip.file(slidePath); const slideRelsEntry = zip.file(relsPath(slidePath)); if (!slideEntry || !slideRelsEntry) continue;
+    const slideDoc = parseXml(await slideEntry.async("text")); const slideRels = relMap(parseXml(await slideRelsEntry.async("text"))); const images = [];
+    for (const blip of Array.from(slideDoc.getElementsByTagNameNS("*", "blip"))) { const targetImage = slideRels.get(relId(blip, "embed")); if (!targetImage) continue; const mediaPath = normalizePath(`${dirname(slidePath)}/${targetImage}`); const media = zip.file(mediaPath); if (media) images.push({ media, mediaPath }); }
+    if (!images.length) { log(`Diapositiva ${i + 1}: no se encontró una imagen principal.`); continue; }
