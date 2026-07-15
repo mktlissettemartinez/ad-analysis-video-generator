@@ -1,0 +1,64 @@
+    images.sort((a, b) => (b.media._data?.uncompressedSize || 0) - (a.media._data?.uncompressedSize || 0)); slides.push({ index: i + 1, blob: await images[0].media.async("blob") });
+    setProgress(4 + ((i + 1) / slideIds.length) * 12, `Extrayendo diapositiva ${i + 1} de ${slideIds.length}`);
+  }
+  if (!slides.length) throw new Error("No se encontraron diapositivas con imágenes.");
+  log(`Se extrajeron ${slides.length} diapositivas.`); return { slides, widthIn, heightIn };
+}
+
+async function ensureOcrWorker() {
+  if (state.worker) return state.worker;
+  log("Cargando reconocimiento de texto en español e inglés…");
+  try {
+    state.worker = await Tesseract.createWorker(["spa", "eng"], 1, { logger: (m) => { if (m.status === "recognizing text" && Number.isFinite(m.progress)) { const base = 20 + (state.currentSlide / Math.max(1, state.parsed?.slides.length || 1)) * 55; setProgress(base + m.progress * 3, `Reconociendo texto · ${Math.round(m.progress * 100)}%`); } } });
+  } catch (error) {
+    log("No se pudo cargar español. Se usará el modelo inglés como respaldo."); state.worker = await Tesseract.createWorker("eng", 1);
+  }
+  await state.worker.setParameters({ tessedit_pageseg_mode: "11", preserve_interword_spaces: "1", user_defined_dpi: "220" }); return state.worker;
+}
+
+function enhancedOcrCanvas(original) {
+  const maxWidth = 2300; const scale = original.width < 1500 ? Math.min(1.55, maxWidth / original.width) : 1; const canvas = document.createElement("canvas"); canvas.width = Math.round(original.width * scale); canvas.height = Math.round(original.height * scale); const ctx = canvas.getContext("2d", { willReadFrequently: true }); ctx.drawImage(original, 0, 0, canvas.width, canvas.height);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const d = image.data;
+  for (let i = 0; i < d.length; i += 4) { const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; const contrasted = clamp255((gray - 128) * 1.28 + 128); d[i] = d[i + 1] = d[i + 2] = contrasted; }
+  ctx.putImageData(image, 0, 0); return { canvas, scale };
+}
+function extractLinesFromOcr(data, scale, width, height) {
+  let raw = Array.isArray(data.lines) ? data.lines : [];
+  if (!raw.length && Array.isArray(data.blocks)) raw = data.blocks.flatMap((b) => (b.paragraphs || []).flatMap((p) => p.lines || []));
+  if (!raw.length && Array.isArray(data.words)) raw = groupWords(data.words);
+  const lines = raw.map((line) => { const b = line.bbox || {}; return { text: String(line.text || "").replace(/\s+/g, " ").trim(), confidence: Number(line.confidence ?? line.conf ?? 0), bbox: { x0: clamp((Number(b.x0) || 0) / scale, 0, width), y0: clamp((Number(b.y0) || 0) / scale, 0, height), x1: clamp((Number(b.x1) || 1) / scale, 1, width), y1: clamp((Number(b.y1) || 1) / scale, 1, height) } }; }).filter(isReliableLine);
+  lines.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0); const result = [];
+  for (const line of lines) { const duplicate = result.findIndex((r) => overlapRatio(r.bbox, line.bbox) > 0.72); if (duplicate >= 0) { if (line.confidence > result[duplicate].confidence) result[duplicate] = line; } else result.push(line); }
+  return result;
+}
+function groupWords(words) {
+  const accepted = words.filter((w) => Number(w.confidence || 0) >= 58 && String(w.text || "").trim()).sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0); const groups = [];
+  for (const word of accepted) { const h = word.bbox.y1 - word.bbox.y0; const cy = (word.bbox.y0 + word.bbox.y1) / 2; let group = groups.find((g) => Math.abs(g.cy - cy) < Math.max(8, h * 0.55) && word.bbox.x0 - g.maxX < Math.max(65, h * 4.2)); if (!group) { group = { cy, maxX: word.bbox.x1, words: [] }; groups.push(group); } group.words.push(word); group.maxX = Math.max(group.maxX, word.bbox.x1); group.cy = group.words.reduce((sum, w) => sum + (w.bbox.y0 + w.bbox.y1) / 2, 0) / group.words.length; }
+  return groups.map((g) => { g.words.sort((a, b) => a.bbox.x0 - b.bbox.x0); return { text: g.words.map((w) => w.text).join(" "), confidence: g.words.reduce((s, w) => s + Number(w.confidence || 0), 0) / g.words.length, bbox: { x0: Math.min(...g.words.map((w) => w.bbox.x0)), y0: Math.min(...g.words.map((w) => w.bbox.y0)), x1: Math.max(...g.words.map((w) => w.bbox.x1)), y1: Math.max(...g.words.map((w) => w.bbox.y1)) } }; });
+}
+function isReliableLine(line) {
+  const text = line.text || ""; const compact = text.replace(/\s/g, ""); if (!compact || line.confidence < 58 || compact.length < 2) return false;
+  const letters = (compact.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g) || []).length; const digits = (compact.match(/[0-9]/g) || []).length; const accepted = (compact.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9.,;:¿?¡!()/%+\-–—'“”"&]/g) || []).length;
+  if (letters < 2 || accepted / compact.length < 0.82) return false; if ((letters + digits) / compact.length < 0.58) return false; if (/([|\\/<>_=~^]){2,}/.test(text)) return false; if (/\b[A-Za-z]\b(?:\s+\b[A-Za-z]\b){3,}/.test(text)) return false;
+  const tokens = text.split(/\s+/).filter(Boolean); const isolated = tokens.filter((t) => t.length === 1 && !/[AIOYaioy0-9]/.test(t)).length; if (tokens.length >= 4 && isolated / tokens.length > 0.32) return false; return true;
+}
+function overlapRatio(a, b) { const x0 = Math.max(a.x0, b.x0), y0 = Math.max(a.y0, b.y0), x1 = Math.min(a.x1, b.x1), y1 = Math.min(a.y1, b.y1); const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0); const minArea = Math.min((a.x1 - a.x0) * (a.y1 - a.y0), (b.x1 - b.x0) * (b.y1 - b.y0)); return minArea ? inter / minArea : 0; }
+function sampleColor(imageData, points) { const { data, width, height } = imageData; let r = 0, g = 0, b = 0, n = 0; for (const [x0, y0] of points) { const x = clamp(Math.round(x0), 0, width - 1), y = clamp(Math.round(y0), 0, height - 1), i = (y * width + x) * 4; r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; } return n ? [r / n, g / n, b / n] : [255, 255, 255]; }
+function estimateTextStyle(canvas, line) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true }); const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const b = line.bbox; const h = Math.max(5, b.y1 - b.y0); const pad = Math.max(3, h * 0.22); const border = [];
+  for (let i = 0; i < 24; i++) { const t = i / 23; border.push([b.x0 + (b.x1 - b.x0) * t, b.y0 - pad], [b.x0 + (b.x1 - b.x0) * t, b.y1 + pad], [b.x0 - pad, b.y0 + (b.y1 - b.y0) * t], [b.x1 + pad, b.y0 + (b.y1 - b.y0) * t]); }
+  const bg = sampleColor(image, border); const bgLum = 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]; const candidates = []; const step = Math.max(1, Math.round(h / 18));
+  for (let y = Math.floor(b.y0); y < Math.ceil(b.y1); y += step) for (let x = Math.floor(b.x0); x < Math.ceil(b.x1); x += step) { const i = (clamp(y, 0, image.height - 1) * image.width + clamp(x, 0, image.width - 1)) * 4; const rgb = [image.data[i], image.data[i + 1], image.data[i + 2]]; const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]; const distance = Math.abs(lum - bgLum) + (Math.abs(rgb[0] - bg[0]) + Math.abs(rgb[1] - bg[1]) + Math.abs(rgb[2] - bg[2])) / 5; if (distance > 42) candidates.push({ rgb, distance }); }
+  candidates.sort((a, b) => b.distance - a.distance); const top = candidates.slice(0, Math.max(8, Math.round(candidates.length * 0.35))); let color;
+  if (top.length) color = top.reduce((sum, p) => [sum[0] + p.rgb[0], sum[1] + p.rgb[1], sum[2] + p.rgb[2]], [0, 0, 0]).map((v) => v / top.length); else color = bgLum < 125 ? [248, 248, 252] : [24, 26, 38];
+  const fontSize = clamp((h / canvas.height) * state.parsed.heightIn * 72 * 1.05, 7, 44); const letters = line.text.replace(/[^A-Za-zÁÉÍÓÚÜÑ]/g, ""); const bold = (letters.length > 3 && letters === letters.toUpperCase()) || h > canvas.height * 0.043; const centered = Math.abs((b.x0 + b.x1) / 2 - canvas.width / 2) < canvas.width * 0.055 && (b.x1 - b.x0) < canvas.width * 0.9;
+  return { color: `#${rgbToHex(...color)}`, fontSize, bold, align: centered ? "center" : "left" };
+}
+
+function recolorCanvas(canvas, hex) {
+  const target = hexToRgb(hex); if (!target) return canvas; const targetHsl = rgbToHsl(...target); const ctx = canvas.getContext("2d", { willReadFrequently: true }); const img = ctx.getImageData(0, 0, canvas.width, canvas.height); const d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]); const isCool = h > 0.47 && h < 0.78; const darkDesign = l < 0.62 && (s < 0.58 || isCool); const neutral = s < 0.2 && l < 0.78; if (!darkDesign && !neutral) continue; const strength = clamp((0.72 - l) * 1.45 + (neutral ? 0.2 : 0), 0.2, 0.9); const newH = h * (1 - strength) + targetHsl[0] * strength; const newS = clamp(s * (1 - strength * 0.45) + targetHsl[1] * strength * 0.78, 0, 1); const newL = clamp(l * 0.82 + targetHsl[2] * 0.18, 0, 1); const rgb = hslToRgb(newH, newS, newL); d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2]; }
+  ctx.putImageData(img, 0, 0); return canvas;
+}
+function regionStats(ctx, x, y, w, h) { x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h); if (w < 2 || h < 2 || x < 0 || y < 0 || x + w > ctx.canvas.width || y + h > ctx.canvas.height) return null; const data = ctx.getImageData(x, y, w, h).data; let r = 0, g = 0, b = 0, r2 = 0, g2 = 0, b2 = 0, n = 0; const step = Math.max(1, Math.round(Math.sqrt((w * h) / 900))); for (let i = 0; i < data.length; i += 4 * step) { r += data[i]; g += data[i + 1]; b += data[i + 2]; r2 += data[i] ** 2; g2 += data[i + 1] ** 2; b2 += data[i + 2] ** 2; n++; } const mean = [r / n, g / n, b / n]; const variance = Math.sqrt(Math.max(0, r2 / n - mean[0] ** 2) + Math.max(0, g2 / n - mean[1] ** 2) + Math.max(0, b2 / n - mean[2] ** 2)); return { mean, variance, x, y, w, h }; }
+function cleanTextRegion(targetCtx, sourceCanvas, bbox) {
